@@ -1,12 +1,16 @@
+# utils/text_to_speech.py
 import edge_tts
+import asyncio
 import uuid
+import os
 
-async def generate_tts_file(text: str, filename: str = None):
-    """Convert text to speech using Microsoft Edge TTS and save as mp3."""
-    if not filename:
-        filename = f"tts_{uuid.uuid4().hex}.mp3"
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-    voice = "en-US-AriaNeural"  # You can change voices
-    tts = edge_tts.Communicate(text, voice)
-    await tts.save(filename)
+async def generate_tts_file(text: str):
+    filename = f"tts_{uuid.uuid4().hex}.mp3"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+
+    communicate = edge_tts.Communicate(text, "en-US-AriaNeural")
+    await communicate.save(filepath)
     return filename
