@@ -108,15 +108,15 @@ async def detect_endpoint(image: UploadFile = File(...)):
 
 
 @app.post("/ocr/")
-async def read_text(image: UploadFile = File(...)):
+async def read_text(file: UploadFile = File(...)):
     """
     Extract text from uploaded image and optionally generate speech.
     """
     try:
         # Save uploaded image
-        file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_{image.filename}")
+        file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_{file.filename}")
         with open(file_path, "wb") as f:
-            f.write(await image.read())
+            f.write(await file.read())
 
         # Perform OCR
         img = Image.open(file_path)
