@@ -79,6 +79,9 @@ function Dashboard({ user, setUser }) {
   const [detectFile, setDetectFile] = useState(null);
   const [detectResult, setDetectResult] = useState(null);
 
+    const [ocrFile, setOcrFile] = useState(null);
+  const [ocrResult, setOcrResult] = useState(null);
+
   useEffect(() => {
     if (ttsResult?.file) {
       const audio = new Audio(`${backendURL}/uploads/${ttsResult.file}`);
@@ -134,6 +137,23 @@ function Dashboard({ user, setUser }) {
       } else speakText("No objects detected");
     } catch (err) {
       alert("Detection Error: " + err.message);
+    }
+  };
+
+  const handleOCR = async (e) => {
+    e.preventDefault();
+    if (!ocrFile) return alert("Upload image");
+    const formData = new FormData();
+    formData.append("file", ocrFile); // must match backend param
+
+    try {
+      const res = await axios.post(`${backendURL}/ocr/`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setOcrResult(res.data);
+      if (res.data.text) speakText(res.data.text);
+    } catch (err) {
+      alert("OCR Error: " + err.message);
     }
   };
 
@@ -213,35 +233,59 @@ function Dashboard({ user, setUser }) {
       </div>
 
       {/* Detection */}
-      <div style={cardStyle}>
-        <h2>Object Detection</h2>
-        <form onSubmit={handleDetect}>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => setDetectFile(e.target.files[0])}
-            style={{ marginBottom: "15px" }}
-          />
-          <br />
-          <button type="submit" style={{ ...buttonStyle, background: "#ff4500" }}>
-            🔍 Detect Objects
-          </button>
-        </form>
-        {detectResult?.output_file && (
-          <div>
-            <img
-              src={`${backendURL}/uploads/${detectResult.output_file}`}
-              alt="Detected"
-              style={{ width: "100%", borderRadius: "10px" }}
-            />
-            <pre>{JSON.stringify(detectResult.detections, null, 2)}</pre>
-          </div>
-        )}
-      </div>
+<div style={cardStyle}>
+  <h2>Object Detection</h2>
+  <form onSubmit={handleDetect}>
+    <input
+      type="file"
+      accept="image/*"
+      onChange={(e) => setDetectFile(e.target.files[0])}
+      style={{ marginBottom: "15px" }}
+    />
+    <br />
+    <button type="submit" style={{ ...buttonStyle, background: "#ff4500" }}>
+      🔍 Detect Objects
+    </button>
+  </form>
+  {detectResult?.output_file && (
+    <div>
+      <img
+        src={`${backendURL}/uploads/${detectResult.output_file}`}
+        alt="Detected"
+        style={{ width: "100%", borderRadius: "10px" }}
+      />
+      <pre>{JSON.stringify(detectResult.detections, null, 2)}</pre>
     </div>
-  );
-}
+  )}
+</div>
 
+{/* OCR / Capture & Read */}
+<div style={cardStyle}>
+  <h2>Capture & Read (OCR)</h2>
+  <form onSubmit={handleOCR}>
+    <input
+      type="file"
+      accept="image/*"
+      onChange={(e) => setOcrFile(e.target.files[0])}
+      style={{ marginBottom: "15px" }}
+    />
+    <br />
+    <button type="submit" style={{ ...buttonStyle, background: "#ff69b4" }}>
+      📖 Read Text
+    </button>
+  </form>
+  {ocrResult && (
+    <div>
+      <p><strong>Extracted Text:</strong></p>
+      <pre>{ocrResult.text}</pre>
+      {ocrResult.audio_file && (
+        <audio controls src={`${backendURL}/uploads/${ocrResult.audio_file}`} />
+      )}
+    </div>
+  )}
+</div>
+</div>
+  )}
 // ---------- Auth Pages ----------
 function Login({ setUser }) {
   const navigate = useNavigate();
