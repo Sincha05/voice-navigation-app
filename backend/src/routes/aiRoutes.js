@@ -1,6 +1,7 @@
 import express from "express";
 import multer from "multer";
 import { textToSpeech, speechToText, detectObjects } from "../services/aiService.js";
+import { ocrImage, textToSpeech } from "../services/aiService.js";
 
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
@@ -44,5 +45,41 @@ router.post("/detect", upload.single("file"), async (req, res) => {
     res.status(500).json({ error: "Failed to detect objects" });
   }
 });
+
+//capture and read
+// router.post("/ocr", upload.single("image"), async (req, res) => {
+//   try {
+//     if (!req.file) return res.status(400).json({ error: "Image file is required" });
+
+//     const ocrResult = await ocrImage(req.file.path);
+
+//     // Optional: generate audio
+//     await textToSpeech(ocrResult.text);
+
+//     res.json(ocrResult);
+//   } catch (error) {
+//     console.error("OCR Error:", error.message);
+//     res.status(500).json({ error: "Failed to extract text from image" });
+//   }
+// });
+
+
+
+
+router.post("/ocr", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Image file is required" });
+
+    const ocrResult = await ocrImage(req.file.path);
+
+    // Optional TTS
+    const ttsResult = await textToSpeech(ocrResult.text);
+    res.json({ ...ocrResult, audio_file: ttsResult.file });
+  } catch (error) {
+    console.error("OCR Error:", error.message);
+    res.status(500).json({ error: "Failed to extract text from image" });
+  }
+});
+
 
 export default router;
