@@ -1,16 +1,25 @@
 # app.py
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from PIL import Image
+from pytesseract import image_to_string
+from gtts import gTTS
+import os
 import uuid
 import os
 import asyncio
+import shutil
 import tempfile
 
 from utils.text_to_speech import generate_tts_file
 from utils.speech_to_text import convert_speech_to_text
 from utils.object_detection import detect_objects
+from utils.ocr_utils import extract_text_from_image, text_to_speech
+
+router = APIRouter()
 
 # ---------------- Directories ----------------
 UPLOAD_DIR = "uploads"
@@ -95,3 +104,39 @@ async def detect_endpoint(image: UploadFile = File(...)):
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
+    
+
+
+@app.post("/ocr/")
+async def read_text(file: UploadFile = File(...)):
+    """
+    Extract text from uploaded image and optionally generate speech.
+    """
+    try:
+        # Save uploaded image
+        file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_{file.filename}")
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+
+        # Perform OCR
+        img = Image.open(file_path)
+        extracted_text = image_to_string(img).strip()
+
+        # Convert extracted text to speech
+        audio_file = None
+        if extracted_text:
+            audio_file = os.path.join(
+                UPLOAD_DIR, f"{uuid.uuid4().hex}_ocr.mp3"
+            )
+            tts = gTTS(text=extracted_text, lang="en")
+            tts.save(audio_file)
+
+        return {
+            "status": "success",
+            "text": extracted_text,
+            "audio_file": os.path.basename(audio_file) if audio_file else None,
+            "fileUrl": f"/uploads/{os.path.basename(audio_file)}" if audio_file else None
+        }
+
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
