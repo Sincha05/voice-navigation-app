@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pyttsx3
+SpeechRecognition
+easyocr
+ultralytics
+opencv-python
+numpy
+Pillow
