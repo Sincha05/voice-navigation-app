@@ -1,33 +1,5 @@
-<<<<<<< HEAD
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-import uuid
-import os
-import asyncio
-import threading
-
-# Utils
-from utils.text_to_speech import generate_tts_file
-from utils.speech_to_text import convert_speech_to_text
-from utils.live_detection import start_live_detection, stop_live_detection, running
-
-# FastAPI app
-app = FastAPI(title="AI Voice Navigation Service", version="1.0")
-
-# ---------------------------
-# Data Models
-# ---------------------------
-class TTSRequest(BaseModel):
-    text: str
-
-# ---------------------------
-# Routes
-# ---------------------------
-
-=======
 # app.py
-from fastapi import FastAPI, UploadFile, File, APIRouter
+from fastapi import FastAPI, UploadFile, File, APIRouter, WebSocket, WebSocketDisconnect 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -37,15 +9,17 @@ from pytesseract import image_to_string
 from gtts import gTTS
 import os
 import uuid
-import os
 import asyncio
 import shutil
 import tempfile
+import threading
+import time
 
 from utils.text_to_speech import generate_tts_file
 from utils.speech_to_text import convert_speech_to_text
 from utils.object_detection import detect_objects
 from utils.ocr_utils import extract_text_from_image, text_to_speech
+from utils.live_detection import start_live_detection, stop_live_detection, running, get_current_detections
 
 router = APIRouter()
 
@@ -56,10 +30,10 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ---------------- FastAPI app ----------------
 app = FastAPI(title="AI Voice Navigation Service", version="1.0")
 
-# Enable CORS for React frontend
+# Enable CORS for React frontend - ADD MORE ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # React dev server
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"],  # Added more origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -68,50 +42,22 @@ app.add_middleware(
 # Serve uploads folder
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+# ---------------- Global Variables ----------------
+latest_detections = []  # Add this missing global variable
+
 # ---------------- Models ----------------
 class TTSRequest(BaseModel):
     text: str
 
 # ---------------- Root ----------------
->>>>>>> ae504f8779a7685a375449c8ce6f393a670f06b6
 @app.get("/")
 def root():
     return {"message": "AI Voice Navigation Service is running 🚀"}
 
-<<<<<<< HEAD
-# 🎤 Text → Speech
-@app.post("/tts/")
-async def tts_endpoint(req: TTSRequest):
-    try:
-        filename = f"tts_{uuid.uuid4().hex}.mp3"
-        await generate_tts_file(req.text, filename)
-        return {"status": "success", "file": filename}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
 
-# 🎧 Speech → Text
-@app.post("/stt/")
-async def stt_endpoint(audio: UploadFile = File(...)):
-    temp_file = f"temp_{uuid.uuid4().hex}_{audio.filename}"
-    try:
-        # Save uploaded file
-        with open(temp_file, "wb") as buffer:
-            content = await audio.read()
-            buffer.write(content)
-
-        # Convert speech to text (CPU-bound)
-        text = await asyncio.to_thread(convert_speech_to_text, temp_file)
-        return {"status": "success", "text": text}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-    finally:
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
-
-# 🔴 Live Detection Start
 @app.get("/live/start/")
 def live_detection_start():
-    global running
+    global running, latest_detections
     if running:
         return {"status": "already_running", "message": "Live detection is already running."}
 
@@ -122,21 +68,21 @@ def live_detection_start():
 # 🔴 Live Detection Stop
 @app.get("/live/stop/")
 def live_detection_stop():
+    global running, latest_detections
     if not running:
         return {"status": "not_running", "message": "Live detection is not running."}
 
     stop_live_detection()
+    latest_detections = []  # Clear detections when stopped
     return {"status": "stopped", "message": "Stop signal sent to live detection."}
-=======
+
 # ---------------- TTS ----------------
 @app.post("/tts/")
 async def tts_endpoint(req: TTSRequest):
-    """
-    Convert text → speech using edge-tts
-    """
     try:
-        filename = await generate_tts_file(req.text)
-        return {"status": "success", "file": filename, "fileUrl": f"/uploads/{filename}"}
+        filename = f"tts_{uuid.uuid4().hex}.mp3"
+        await generate_tts_file(req.text, filename)
+        return {"status": "success", "file": filename}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -184,31 +130,125 @@ async def detect_endpoint(image: UploadFile = File(...)):
     except Exception as e:
         return {"status": "error", "message": str(e)}
     
+@app.get("/live/detections/")
+def get_live_detections():
+    """Get current detection results for frontend"""
+    global latest_detections
+    if not running:
+        return {"status": "not_running", "detections": []}
+    
+    try:
+        # Get current detections from live_detection module
+        current_detects = get_current_detections()
+        
+        detections = []
+        for detection in current_detects:
+            # Handle both tuple formats: (label, distance, direction) or (label, distance, direction, confidence)
+            if len(detection) == 3:
+                label, distance, direction = detection
+                confidence = 0.8  # Default confidence
+            else:
+                label, distance, direction, confidence = detection
+            
+            detections.append({
+                "class_name": label,
+                "distance": distance,
+                "direction": direction,
+                "confidence": round(float(confidence), 2)
+            })
+        
+        latest_detections = detections  # Update global for WebSocket
+        return {"status": "running", "detections": detections}
+    
+    except Exception as e:
+        print(f"Error in get_live_detections: {e}")
+        return {"status": "error", "detections": [], "message": str(e)}
 
-
+@app.get("/live/status/")
+def get_live_status():
+    """Check if live detection is running"""
+    return {"running": running}
+    
+@app.websocket("/ws/live")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    print("📡 Client connected to WebSocket")
+    try:
+        while True:
+            await asyncio.sleep(1)  # Send updates every second
+            if running and latest_detections:
+                await websocket.send_json({
+                    "status": "running", 
+                    "detections": latest_detections
+                })
+            else:
+                await websocket.send_json({
+                    "status": "not_running", 
+                    "detections": []
+                })
+    except WebSocketDisconnect:
+        print("📡 Client disconnected from WebSocket")
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+    finally:
+        await websocket.close()
+# In your app.py - Update the OCR endpoint
 @app.post("/ocr/")
 async def read_text(file: UploadFile = File(...)):
     """
     Extract text from uploaded image and optionally generate speech.
     """
     try:
+        print(f"📸 Received file: {file.filename}, content-type: {file.content_type}")
+        
+        # Validate file type
+        if not file.content_type.startswith('image/'):
+            return JSONResponse(
+                {"status": "error", "message": "File must be an image"}, 
+                status_code=400
+            )
+
         # Save uploaded image
-        file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_{file.filename}")
+        file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+        file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}.{file_extension}")
+        
         with open(file_path, "wb") as f:
-            f.write(await file.read())
+            content = await file.read()
+            f.write(content)
+        
+        print(f"💾 Image saved to: {file_path}")
 
         # Perform OCR
-        img = Image.open(file_path)
-        extracted_text = image_to_string(img).strip()
+        try:
+            img = Image.open(file_path)
+            print(f"🖼️ Image opened successfully: {img.size}, mode: {img.mode}")
+            
+            # Convert image to RGB if necessary (for PNG with transparency)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Perform OCR
+            extracted_text = image_to_string(img).strip()
+            print(f"📖 Extracted text: {extracted_text}")
+
+        except Exception as ocr_error:
+            print(f"❌ OCR processing error: {str(ocr_error)}")
+            return JSONResponse(
+                {"status": "error", "message": f"OCR processing failed: {str(ocr_error)}"}, 
+                status_code=500
+            )
 
         # Convert extracted text to speech
         audio_file = None
         if extracted_text:
-            audio_file = os.path.join(
-                UPLOAD_DIR, f"{uuid.uuid4().hex}_ocr.mp3"
-            )
-            tts = gTTS(text=extracted_text, lang="en")
-            tts.save(audio_file)
+            try:
+                audio_file = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_ocr.mp3")
+                tts = gTTS(text=extracted_text, lang="en")
+                tts.save(audio_file)
+                print(f"🔊 Audio file saved: {audio_file}")
+            except Exception as tts_error:
+                print(f"❌ TTS error: {str(tts_error)}")
+                # Continue even if TTS fails
 
         return {
             "status": "success",
@@ -218,5 +258,9 @@ async def read_text(file: UploadFile = File(...)):
         }
 
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
->>>>>>> ae504f8779a7685a375449c8ce6f393a670f06b6
+        print(f"❌ General error in OCR endpoint: {str(e)}")
+        return JSONResponse(
+            {"status": "error", "message": f"Server error: {str(e)}"}, 
+            status_code=500
+        )
+

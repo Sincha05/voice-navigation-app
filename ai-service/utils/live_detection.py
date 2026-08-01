@@ -36,6 +36,9 @@ last_announcement_time = 0
 last_object_times = {}            # {label: timestamp}
 last_distances = {}               # {label: distance}
 running = False
+# Add these global variables at the top with your other globals
+current_detections = []
+detection_lock = threading.Lock()
 
 
 # ===============================================================
@@ -89,7 +92,7 @@ def speak_async(text, label="unknown"):
             ensure_dir(date_folder)
             filename = os.path.join(date_folder, f"{label}_{uuid.uuid4().hex}.mp3")
 
-            asyncio.run(generate_tts_file(text, filename))
+            asyncio.run(generate_tts_file(text,filename))
 
             # Clean up older files
             cleanup_old_files(date_folder)
@@ -114,7 +117,8 @@ def start_live_detection():
     """Main real-time detection and voice guidance loop."""
     global running, last_announcement_time
     running = True
-
+    current_detections = [] 
+    
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("❌ Camera not accessible.")
@@ -162,6 +166,10 @@ def start_live_detection():
 
                 detected_objects.append((label, distance, direction))
 
+        with detection_lock:
+            current_detections = detected_objects.copy()
+
+
         # =============================
         #       VOICE ANNOUNCEMENTS
         # =============================
@@ -202,6 +210,11 @@ def start_live_detection():
     cv2.destroyAllWindows()
     running = False
     print("🛑 Live detection stopped.")
+
+def get_current_detections():
+    """Get the latest detections for frontend API"""
+    with detection_lock:
+        return current_detections.copy()
 
 
 def stop_live_detection():
