@@ -4,11 +4,18 @@ from pydub import AudioSegment
 import os
 import tempfile
 
-# === FFmpeg Setup for Windows ===
-# Replace with your actual ffmpeg bin folder path
-ffmpeg_path = r"C:\ffmpeg-8.0-essentials_build\bin\ffmpeg.exe"
-os.environ["PATH"] += os.pathsep + os.path.dirname(ffmpeg_path)
-AudioSegment.converter = ffmpeg_path
+import shutil
+
+# === Portable FFmpeg Setup ===
+ffmpeg_in_path = shutil.which("ffmpeg")
+if ffmpeg_in_path:
+    AudioSegment.converter = ffmpeg_in_path
+else:
+    # Check default Windows build path if system PATH lookup fails
+    default_win_ffmpeg = r"C:\ffmpeg-8.0-essentials_build\bin\ffmpeg.exe"
+    if os.path.exists(default_win_ffmpeg):
+        os.environ["PATH"] += os.pathsep + os.path.dirname(default_win_ffmpeg)
+        AudioSegment.converter = default_win_ffmpeg
 
 # === Load Whisper model once ===
 model = whisper.load_model("base")

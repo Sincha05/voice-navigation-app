@@ -97,12 +97,6 @@ def speak_async(text, label="unknown"):
             # Clean up older files
             cleanup_old_files(date_folder)
 
-            # Play the file
-            if os.name == "nt":
-                os.system(f"start {filename}")
-            else:
-                os.system(f"mpg123 {filename}")
-
         except Exception as e:
             print("TTS Error:", e)
 
@@ -115,9 +109,10 @@ def speak_async(text, label="unknown"):
 
 def start_live_detection():
     """Main real-time detection and voice guidance loop."""
-    global running, last_announcement_time
+    global running, last_announcement_time, current_detections
     running = True
-    current_detections = [] 
+    with detection_lock:
+        current_detections = []
     
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -200,10 +195,8 @@ def start_live_detection():
             last_object_times[label] = now
             last_distances[label] = distance
 
-        # Show frame
-        cv2.imshow("Live Object Detection", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        # Small sleep to yield CPU in headless loop
+        time.sleep(0.01)
 
     # Cleanup
     cap.release()
@@ -222,3 +215,45 @@ def stop_live_detection():
     global running
     running = False
     print("🛑 Stop signal received.")
+
+
+def process_frame(frame):
+    """
+    Process a single OpenCV image frame using YOLO, estimate distance and direction.
+    Returns a list of dicts: [{'class_name': str, 'distance': float|None, 'direction': str, 'confidence': float}]
+    """
+    if frame is None:
+        return []
+
+    results = model(frame)[0]
+    detected_objects = []
+    frame_width = frame.shape[1]
+
+    for box in results.boxes:
+        conf = float(box.conf[0])
+        if conf < MIN_CONFIDENCE:
+            continue
+
+        cls_id = int(box.cls[0])
+        label = model.names[cls_id]
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
+        pixel_width = x2 - x1
+
+        # Distance estimation
+        distance = None
+        if label in KNOWN_WIDTHS:
+            distance = estimate_distance(KNOWN_WIDTHS[label], pixel_width)
+
+        # Direction estimation
+        center_x = (x1 + x2) / 2
+        direction = get_direction(center_x, frame_width)
+
+        detected_objects.append({
+            "class_name": label,
+            "distance": distance,
+            "direction": direction,
+            "confidence": round(conf, 2)
+        })
+
+    return detected_objects
+

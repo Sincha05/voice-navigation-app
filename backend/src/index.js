@@ -6,6 +6,8 @@ const FormData = require("form-data");
 const fs = require("fs");
 const path = require("path");
 
+const aiRoutes = require("./routes/aiRoutes");
+
 const app = express();
 app.use(express.json());
 
@@ -13,7 +15,8 @@ app.use(express.json());
 app.use("/static", express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-const upload = multer({ dest: "uploads/" });
+// AI Router mount
+app.use("/api", aiRoutes);
 
 // Health check
 app.get("/", (req, res) => {

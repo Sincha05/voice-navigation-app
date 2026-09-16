@@ -1,7 +1,10 @@
 # app/utils/ocr_utils.py
 from PIL import Image
 import pytesseract
-from gtts import gTTS
+try:
+    from gtts import gTTS
+except ImportError:
+    gTTS = None
 
 def extract_text_from_image(image_path: str) -> str:
     img = Image.open(image_path)

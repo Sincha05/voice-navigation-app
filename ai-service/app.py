@@ -6,7 +6,10 @@ from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from PIL import Image
 from pytesseract import image_to_string
-from gtts import gTTS
+try:
+    from gtts import gTTS
+except ImportError:
+    gTTS = None
 import os
 import uuid
 import asyncio
@@ -15,11 +18,14 @@ import tempfile
 import threading
 import time
 
+import numpy as np
+import cv2
+
 from utils.text_to_speech import generate_tts_file
 from utils.speech_to_text import convert_speech_to_text
 from utils.object_detection import detect_objects
 from utils.ocr_utils import extract_text_from_image, text_to_speech
-from utils.live_detection import start_live_detection, stop_live_detection, running, get_current_detections
+from utils.live_detection import start_live_detection, stop_live_detection, running, get_current_detections, process_frame
 
 router = APIRouter()
 
@@ -30,10 +36,11 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ---------------- FastAPI app ----------------
 app = FastAPI(title="AI Voice Navigation Service", version="1.0")
 
-# Enable CORS for React frontend - ADD MORE ORIGINS
+# Enable CORS for React frontend (localhost + LAN dev origins)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"],  # Added more origins
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+):[0-9]+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -129,7 +136,25 @@ async def detect_endpoint(image: UploadFile = File(...)):
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
-    
+
+@app.post("/live/frame/")
+async def process_live_frame(file: UploadFile = File(...)):
+    """
+    Process a single image frame uploaded from browser client camera.
+    """
+    try:
+        content = await file.read()
+        nparr = np.frombuffer(content, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            return JSONResponse({"status": "error", "message": "Invalid image frame", "detections": []}, status_code=400)
+
+        detections = process_frame(frame)
+        return {"status": "success", "detections": detections}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e), "detections": []}, status_code=500)
+
 @app.get("/live/detections/")
 def get_live_detections():
     """Get current detection results for frontend"""

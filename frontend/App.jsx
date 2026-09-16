@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-const backendURL = "http://127.0.0.1:8000";
+const backendURL = "";
 
 function App() {
   const [ocrResult, setOcrResult] = useState("");
@@ -10,10 +10,15 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isLiveDetecting, setIsLiveDetecting] = useState(false);
   const [liveDetections, setLiveDetections] = useState([]);
+  const [cameraError, setCameraError] = useState("");
   const [activeTab, setActiveTab] = useState("home");
 
   const recognitionRef = useRef(null);
   const pollIntervalRef = useRef(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const isProcessingFrameRef = useRef(false);
 
   const speakText = (text) => {
     if (!text) return;
@@ -107,83 +112,105 @@ function App() {
     speakText(ttsText);
   };
 
-  const startDetectionPolling = () => {
-    pollIntervalRef.current = setInterval(async () => {
-      if (!isLiveDetecting) {
-        clearInterval(pollIntervalRef.current);
-        return;
-      }
+  const captureAndSendFrame = async () => {
+    if (isProcessingFrameRef.current || !videoRef.current || !canvasRef.current) return;
 
-      try {
-        const res = await fetch(`${backendURL}/live/detections/`);
-        const data = await res.json();
-        if (data.detections && data.detections.length > 0) {
-          setLiveDetections(data.detections);
-          
-          const names = data.detections.map(d => 
-            d.distance ? `${d.class_name} ${d.distance}m ${d.direction}` : `${d.class_name} ${d.direction}`
-          ).join(", ");
-          
-          if (data.detections.length > 0) {
-            speakText("Detected: " + names);
-          }
-        } else {
-          setLiveDetections([]);
+    const video = videoRef.current;
+    if (video.readyState < 2) return; // Wait until HAVE_CURRENT_DATA
+
+    isProcessingFrameRef.current = true;
+    try {
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          isProcessingFrameRef.current = false;
+          return;
         }
-      } catch (err) {
-        console.error("Error fetching detections:", err);
-      }
-    }, 3000);
+        const formData = new FormData();
+        formData.append("file", blob, "frame.jpg");
+
+        try {
+          const res = await fetch(`${backendURL}/live/frame/`, {
+            method: "POST",
+            body: formData
+          });
+          const data = await res.json();
+          if (data.detections) {
+            setLiveDetections(data.detections);
+            if (data.detections.length > 0) {
+              const names = data.detections.map(d =>
+                d.distance ? `${d.class_name} ${d.distance}m ${d.direction}` : `${d.class_name} ${d.direction}`
+              ).join(", ");
+              speakText("Detected: " + names);
+            }
+          }
+        } catch (err) {
+          console.error("Frame detection request error:", err);
+        } finally {
+          isProcessingFrameRef.current = false;
+        }
+      }, "image/jpeg", 0.7);
+    } catch (err) {
+      console.error("Frame capture error:", err);
+      isProcessingFrameRef.current = false;
+    }
   };
 
   const startLiveDetection = async () => {
+    setCameraError("");
     try {
-      const res = await fetch(`${backendURL}/live/start/`);
-      const data = await res.json();
-      if (data.status === "started" || data.status === "already_running") {
-        setIsLiveDetecting(true);
-        speakText("Live detection started.");
-        startDetectionPolling();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } }
+      });
+      mediaStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
       }
+      setIsLiveDetecting(true);
+      speakText("Live camera detection started.");
+
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = setInterval(captureAndSendFrame, 2000);
     } catch (err) {
-      console.error("Failed to start live detection:", err);
-      speakText("Failed to start live detection.");
+      console.error("Camera access failed:", err);
+      const errMsg = "Camera permission required for live detection.";
+      setCameraError(errMsg);
+      speakText(errMsg);
     }
   };
 
-  const stopLiveDetection = async () => {
-    try {
-      await fetch(`${backendURL}/live/stop/`);
-      setIsLiveDetecting(false);
-      setLiveDetections([]);
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
-      speakText("Live detection stopped.");
-    } catch (err) {
-      console.error("Failed to stop live detection:", err);
+  const stopLiveDetection = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
     }
-  };
-
-  const checkLiveStatus = async () => {
-    try {
-      const res = await fetch(`${backendURL}/live/status/`);
-      const data = await res.json();
-      if (data.running) {
-        setIsLiveDetecting(true);
-        startDetectionPolling();
-      }
-    } catch (err) {
-      console.error("Error checking live status:", err);
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    isProcessingFrameRef.current = false;
+    setIsLiveDetecting(false);
+    setLiveDetections([]);
+    speakText("Live detection stopped.");
   };
 
   useEffect(() => {
-    checkLiveStatus();
-    
     return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(track => track.stop());
       }
     };
   }, []);
@@ -642,6 +669,23 @@ function App() {
             <div className="pulse-dot" style={{ background: isLiveDetecting ? '#4caf50' : '#f44336' }}></div>
             {isLiveDetecting ? 'Running' : 'Stopped'}
           </span>
+        </div>
+        
+        {cameraError && (
+          <div className="result-box" style={{ borderColor: '#f44336', color: '#f44336', marginBottom: '15px' }}>
+            ⚠️ {cameraError}
+          </div>
+        )}
+
+        <div style={{ margin: '15px 0', display: isLiveDetecting ? 'block' : 'none' }}>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{ width: '100%', maxHeight: '400px', borderRadius: '12px', background: '#000' }}
+          />
+          <canvas ref={canvasRef} style={{ display: 'none' }} />
         </div>
         
         {!isLiveDetecting ? (

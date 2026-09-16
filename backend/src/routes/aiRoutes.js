@@ -1,7 +1,6 @@
-import express from "express";
-import multer from "multer";
-import { textToSpeech, speechToText, detectObjects } from "../services/aiService.js";
-import { ocrImage, textToSpeech } from "../services/aiService.js";
+const express = require("express");
+const multer = require("multer");
+const { textToSpeech, speechToText, detectObjects, ocrImage } = require("../services/aiService");
 
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
@@ -21,11 +20,12 @@ router.post("/tts", async (req, res) => {
 });
 
 // Speech-to-Text
-router.post("/stt", upload.single("file"), async (req, res) => {
+router.post("/stt", upload.single("audio"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "File is required" });
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: "Audio file is required" });
 
-    const result = await speechToText(req.file.path);
+    const result = await speechToText(file.path);
     res.json(result);
   } catch (error) {
     console.error("STT Error:", error.message);
@@ -34,11 +34,12 @@ router.post("/stt", upload.single("file"), async (req, res) => {
 });
 
 // Object Detection
-router.post("/detect", upload.single("file"), async (req, res) => {
+router.post("/detect", upload.single("image"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "File is required" });
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: "Image file is required" });
 
-    const result = await detectObjects(req.file.path);
+    const result = await detectObjects(file.path);
     res.json(result);
   } catch (error) {
     console.error("Detection Error:", error.message);
@@ -46,16 +47,13 @@ router.post("/detect", upload.single("file"), async (req, res) => {
   }
 });
 
-// capture and read
-router.post("/ocr", upload.single("image"), async (req, res) => {
+// OCR
+router.post("/ocr", upload.single("file"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "Image file is required" });
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: "Image file is required" });
 
-    const ocrResult = await ocrImage(req.file.path);
-
-    // Optional: generate audio
-    await textToSpeech(ocrResult.text);
-
+    const ocrResult = await ocrImage(file.path);
     res.json(ocrResult);
   } catch (error) {
     console.error("OCR Error:", error.message);
@@ -63,23 +61,4 @@ router.post("/ocr", upload.single("image"), async (req, res) => {
   }
 });
 
-
-
-
-// router.post("/ocr", upload.single("image"), async (req, res) => {
-//   try {
-//     if (!req.file) return res.status(400).json({ error: "Image file is required" });
-
-//     const ocrResult = await ocrImage(req.file.path);
-
-//     // Optional TTS
-//     const ttsResult = await textToSpeech(ocrResult.text);
-//     res.json({ ...ocrResult, audio_file: ttsResult.file });
-//   } catch (error) {
-//     console.error("OCR Error:", error.message);
-//     res.status(500).json({ error: "Failed to extract text from image" });
-//   }
-// });
-
-
-export default router;
+module.exports = router;
