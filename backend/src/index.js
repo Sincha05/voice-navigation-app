@@ -1,5 +1,7 @@
 // index.js
+require("dotenv").config();
 const express = require("express");
+const cors = require("cors");
 const axios = require("axios");
 const multer = require("multer");
 const FormData = require("form-data");
@@ -7,16 +9,22 @@ const fs = require("fs");
 const path = require("path");
 
 const aiRoutes = require("./routes/aiRoutes");
+const navigationRoutes = require("./routes/navigationRoutes");
 
 const app = express();
+const upload = multer({ dest: "uploads/" });
+
+// Enable CORS for all incoming requests (supports localhost, LAN IP, and ngrok)
+app.use(cors());
 app.use(express.json());
 
 // Serve static files from "public" and "uploads"
 app.use("/static", express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// AI Router mount
+// AI and Navigation Router mounts
 app.use("/api", aiRoutes);
+app.use("/api/navigation", navigationRoutes);
 
 // Health check
 app.get("/", (req, res) => {
@@ -32,12 +40,11 @@ app.post("/tts", async (req, res) => {
       return res.status(400).json({ error: "Text is required" });
     }
 
-    // Call FastAPI
-    const response = await axios.post("http://127.0.0.1:8000/tts/", { text });
+    const aiBaseUrl = process.env.AI_BASE_URL || "http://127.0.0.1:8000";
+    const response = await axios.post(`${aiBaseUrl}/tts/`, { text });
 
-    // If FastAPI returns a file path, serve it
     if (response.data.filePath) {
-      const fileUrl = `http://localhost:5000/${response.data.filePath}`;
+      const fileUrl = `http://localhost:${PORT}/${response.data.filePath}`;
       return res.json({ ...response.data, fileUrl });
     }
 
@@ -58,7 +65,8 @@ app.post("/stt", upload.single("audio"), async (req, res) => {
     const formData = new FormData();
     formData.append("audio", fs.createReadStream(req.file.path));
 
-    const response = await axios.post("http://127.0.0.1:8000/stt/", formData, {
+    const aiBaseUrl = process.env.AI_BASE_URL || "http://127.0.0.1:8000";
+    const response = await axios.post(`${aiBaseUrl}/stt/`, formData, {
       headers: formData.getHeaders(),
     });
 
@@ -66,6 +74,10 @@ app.post("/stt", upload.single("audio"), async (req, res) => {
   } catch (err) {
     console.error("Error calling FastAPI:", err.message);
     res.status(500).json({ error: "Failed to connect to AI service" });
+  } finally {
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      fs.unlink(req.file.path, () => {});
+    }
   }
 });
 
@@ -79,7 +91,8 @@ app.post("/detect", upload.single("image"), async (req, res) => {
     const formData = new FormData();
     formData.append("image", fs.createReadStream(req.file.path));
 
-    const response = await axios.post("http://127.0.0.1:8000/detect/", formData, {
+    const aiBaseUrl = process.env.AI_BASE_URL || "http://127.0.0.1:8000";
+    const response = await axios.post(`${aiBaseUrl}/detect/`, formData, {
       headers: formData.getHeaders(),
     });
 
@@ -87,11 +100,14 @@ app.post("/detect", upload.single("image"), async (req, res) => {
   } catch (err) {
     console.error("Error calling FastAPI:", err.message);
     res.status(500).json({ error: "Failed to connect to AI service" });
+  } finally {
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      fs.unlink(req.file.path, () => {});
+    }
   }
 });
 
 // ------------------ DOWNLOAD FILES ------------------
-// Example: http://localhost:5000/download/result.json
 app.get("/download/:filename", (req, res) => {
   const filePath = path.join(__dirname, "uploads", req.params.filename);
 
@@ -99,10 +115,10 @@ app.get("/download/:filename", (req, res) => {
     return res.status(404).send("File not found");
   }
 
-  res.download(filePath); // forces download
+  res.download(filePath);
 });
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Node backend running at http://localhost:${PORT}`);
 });

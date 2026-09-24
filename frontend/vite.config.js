@@ -12,6 +12,7 @@ export default defineConfig({
       '/stt': 'http://127.0.0.1:8000',
       '/tts': 'http://127.0.0.1:8000',
       '/live': 'http://127.0.0.1:8000',
+      '/api': 'http://127.0.0.1:5000',
     },
   },
 })
