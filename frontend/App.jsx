@@ -9,9 +9,6 @@ import {
 } from "./utils/languages";
 import { SpeechController } from "./utils/speechController";
 import { NavigationManager } from "./utils/navigationManager";
-import { IndoorNavigationPanel } from "./components/IndoorNavigationPanel.jsx";
-import { VoiceNavigationExperience } from "./components/VoiceNavigationExperience.jsx";
-import { IndoorNavigationManager } from "./utils/indoor/indoorNavigationManager.js";
 
 const backendURL = "";
 
@@ -51,9 +48,6 @@ function App() {
     currentStepIndex: 0
   });
   const [manualDestination, setManualDestination] = useState("");
-  const [navigationMode, setNavigationMode] = useState("outdoor"); // outdoor | indoor
-  const [indoorUiSync, setIndoorUiSync] = useState(null);
-  const [voiceNavSessionActive, setVoiceNavSessionActive] = useState(false);
 
   // ---------------- Refs for Hardware & Singletons ----------------
   const videoRef = useRef(null);
@@ -71,13 +65,6 @@ function App() {
   // Speech & Navigation controller refs (Guaranteed SINGLETON instances)
   const speechControllerRef = useRef(null);
   const navigationManagerRef = useRef(null);
-  const indoorNavigationManagerRef = useRef(null);
-  const voiceOrchestratorRef = useRef(null);
-  const voiceNavSessionActiveRef = useRef(false);
-  const navigationModeRef = useRef(navigationMode);
-  navigationModeRef.current = navigationMode;
-  voiceNavSessionActiveRef.current = voiceNavSessionActive;
-
   const selectedLanguageRef = useRef(selectedLanguage);
   selectedLanguageRef.current = selectedLanguage;
 
@@ -146,52 +133,12 @@ function App() {
 
       case "NAVIGATE_TO":
         if (command.destination) {
-          if (voiceNavSessionActiveRef.current) {
-            voiceOrchestratorRef.current?.processTranscript(`take me to ${command.destination}`);
-          } else if (navigationModeRef.current === "indoor") {
-            voiceOrchestratorRef.current?.processTranscript(`take me to ${command.destination}`);
-          } else {
-            initiateNavigation(command.destination);
-          }
+          initiateNavigation(command.destination);
         }
         break;
 
       case "STOP_NAVIGATION":
-        stopAllNavigation();
-        break;
-
-      case "PAUSE_NAVIGATION":
-        if (navigationState.isNavigating) {
-          navigationManagerRef.current?.pauseNavigation();
-          speakText("Outdoor navigation paused.");
-        } else if (indoorNavigationManagerRef.current?.isNavigating) {
-          indoorNavigationManagerRef.current.pauseNavigation();
-          speakText("Indoor navigation paused.");
-        }
-        break;
-
-      case "RESUME_NAVIGATION":
-        if (navigationManagerRef.current?.isPaused) {
-          navigationManagerRef.current.resumeNavigation();
-          speakText("Outdoor navigation resumed.");
-        } else if (indoorNavigationManagerRef.current?.isPaused) {
-          indoorNavigationManagerRef.current.resumeNavigation();
-          speakText("Indoor navigation resumed.");
-        }
-        break;
-
-      case "REPEAT_INSTRUCTION":
-        if (navigationState.isNavigating) {
-          navigationManagerRef.current?.repeatInstruction();
-        } else if (indoorNavigationManagerRef.current?.isNavigating) {
-          indoorNavigationManagerRef.current.repeatInstruction();
-        } else {
-          speakText("No active navigation to repeat.");
-        }
-        break;
-
-      case "WHERE_AM_I":
-        voiceOrchestratorRef.current?.processTranscript("where am i");
+        stopNavigation();
         break;
 
       default:
@@ -212,11 +159,7 @@ function App() {
         speakText(errMsg);
       },
       getLanguage: () => selectedLanguageRef.current,
-      isSpeakingRef: isSpeakingRef,
-      getVoiceNavActive: () => voiceNavSessionActiveRef.current,
-      onVoiceNavTranscript: (transcript) => {
-        voiceOrchestratorRef.current?.processTranscript(transcript);
-      }
+      isSpeakingRef: isSpeakingRef
     });
 
     // 2. Initialize Navigation Manager
@@ -225,7 +168,6 @@ function App() {
         setNavigationState((prev) => ({ ...prev, ...state }));
       },
       onInstruction: ({ isInitial, destinationName, distanceText, durationText, instruction, firstInstruction }) => {
-        if (navigationManagerRef.current?.isPaused) return;
         if (isInitial) {
           const confirmation = getMessage("navRouteFound", selectedLanguageRef.current, {
             destination: destinationName,
@@ -251,24 +193,6 @@ function App() {
         } else {
           speakText(errMsg || "Navigation error occurred.");
         }
-      }
-    });
-
-    // 3. Initialize Indoor Navigation Manager
-    indoorNavigationManagerRef.current = new IndoorNavigationManager({
-      onStateChange: (patch) => {
-        setIndoorUiSync((prev) => ({ ...(prev || {}), ...patch, ts: Date.now() }));
-      },
-      onSpeak: (text, meta = {}) => {
-        if (meta.cancel && window.speechSynthesis) {
-          window.speechSynthesis.cancel();
-          return;
-        }
-        if (!text) return;
-        speakText(text);
-      },
-      onError: (_code, message) => {
-        console.error("Indoor navigation error:", message);
       }
     });
 
@@ -383,7 +307,6 @@ function App() {
       lastGlobalAnnouncementRef.current = now;
       speakText(announcement);
     }
-    voiceOrchestratorRef.current?.onDetectionTick?.(detections);
   };
 
   // ---------------- Live Frame Capture Loop ----------------
@@ -642,41 +565,9 @@ function App() {
     navigationManagerRef.current?.startNavigation(cleanDest, selectedLanguage);
   };
 
-  const stopAllNavigation = () => {
-    navigationManagerRef.current?.stopNavigation(true);
-    indoorNavigationManagerRef.current?.stopNavigation(true);
-    voiceOrchestratorRef.current?.stopActiveNavigation?.(true);
-    speakText(getMessage("navStopped", selectedLanguage));
-  };
-
   const stopNavigation = () => {
-    stopAllNavigation();
-  };
-
-  const orchestratorDeps = {
-    outdoorNav: {
-      startNavigation: (dest, lang) => navigationManagerRef.current?.startNavigation(dest, lang),
-      stopNavigation: (u) => navigationManagerRef.current?.stopNavigation(u),
-      pause: () => navigationManagerRef.current?.pauseNavigation(),
-      resume: () => navigationManagerRef.current?.resumeNavigation(),
-      repeatInstruction: () => navigationManagerRef.current?.repeatInstruction(),
-      getCurrentLocation: () => navigationManagerRef.current?.getCurrentLocation()
-    },
-    indoorNav: {
-      stop: (c) => indoorNavigationManagerRef.current?.stopNavigation(c),
-      pause: () => indoorNavigationManagerRef.current?.pauseNavigation(),
-      resume: () => indoorNavigationManagerRef.current?.resumeNavigation(),
-      repeatInstruction: () => indoorNavigationManagerRef.current?.repeatInstruction(),
-      nextStep: () => indoorNavigationManagerRef.current?.nextStep(),
-      applyRoute: (route, meta) => indoorNavigationManagerRef.current?.applyRoute(route, meta)
-    },
-    syncIndoorUi: (patch) => setIndoorUiSync((prev) => ({ ...(prev || {}), ...patch, ts: Date.now() })),
-    setNavigationMode: (mode) => setNavigationMode(mode),
-    getNavigationMode: () => navigationModeRef.current,
-    getLatestDetections: () => latestDetectionsRef.current,
-    getLastOcrText: () => ocrResult,
-    getLanguage: () => selectedLanguageRef.current,
-    getHelpText: () => getMessage("help", selectedLanguageRef.current)
+    navigationManagerRef.current?.stopNavigation(true);
+    speakText(getMessage("navStopped", selectedLanguage));
   };
 
   // ---------------- UI Renderers ----------------
@@ -1063,66 +954,11 @@ function App() {
           border-color: #667eea;
           background: rgba(255, 255, 255, 0.12);
         }
-
-        .nav-mode-toggle {
-          display: inline-flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin: 12px 0 4px;
-          padding: 6px;
-          border-radius: 14px;
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-        }
-        .nav-mode-btn {
-          border: 1px solid transparent;
-          background: transparent;
-          color: rgba(255, 255, 255, 0.85);
-          padding: 10px 18px;
-          border-radius: 10px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-        .nav-mode-btn.active {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-        }
-        .nav-mode-btn:focus-visible {
-          outline: 3px solid #667eea;
-          outline-offset: 2px;
-        }
       `}</style>
 
       <div className="dashboard-header">
         <h1 className="dashboard-title">Voice Navigation Dashboard</h1>
       </div>
-
-      <VoiceNavigationExperience
-        speakText={speakText}
-        speechSupported={
-          !!(typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition))
-        }
-        onEnableListening={() => {
-          const started = speechControllerRef.current?.startListening();
-          if (started) setSpeechError("");
-          return started;
-        }}
-        onDisableListening={(userInitiated) => {
-          speechControllerRef.current?.stopListening(userInitiated !== false);
-          setVoiceNavSessionActive(false);
-          voiceNavSessionActiveRef.current = false;
-        }}
-        isListening={isVoiceControlActive}
-        isSpeakingRef={isSpeakingRef}
-        orchestratorDeps={orchestratorDeps}
-        onOrchestratorReady={(orch) => {
-          voiceOrchestratorRef.current = orch;
-        }}
-        onSessionChange={({ sessionActive }) => {
-          setVoiceNavSessionActive(!!sessionActive);
-          voiceNavSessionActiveRef.current = !!sessionActive;
-        }}
-      />
 
       {/* Accessible Top Bar: Language & Master Voice Control */}
       <div className="controls-topbar" role="toolbar" aria-label="Language and Voice Control Toolbar">
@@ -1417,136 +1253,89 @@ function App() {
           )}
       </div>
 
-      {/* Walking / Indoor Voice Navigation Card */}
-      <div className="feature-card" role="region" aria-label="Voice Navigation">
+      {/* Walking Voice Navigation Card */}
+      <div className="feature-card" role="region" aria-label="Walking Voice Navigation">
         <div className="card-header">
           <div className="card-icon" aria-hidden="true">🚶</div>
           <div>
-            <h2 className="card-title">Voice Navigation</h2>
+            <h2 className="card-title">Pedestrian Walking Voice Navigation</h2>
             <p style={{ color: "rgba(255, 255, 255, 0.6)", fontSize: "0.95rem", marginTop: "4px" }}>
-              Choose outdoor GPS walking routes or indoor floor maps with step-by-step guidance.
+              Say <em>"Take me to [destination]"</em> or type a destination below:
             </p>
           </div>
         </div>
 
-        <div
-          className="nav-mode-toggle"
-          role="tablist"
-          aria-label="Navigation mode"
-        >
+        <div className="nav-input-row">
+          <input
+            type="text"
+            className="nav-input"
+            placeholder="e.g., Central Park, Nearest Metro Station..."
+            value={manualDestination}
+            onChange={(e) => setManualDestination(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && initiateNavigation(manualDestination)}
+            aria-label="Enter Walking Destination"
+          />
           <button
-            type="button"
-            role="tab"
-            aria-selected={navigationMode === "outdoor"}
-            className={`nav-mode-btn ${navigationMode === "outdoor" ? "active" : ""}`}
-            onClick={() => setNavigationMode("outdoor")}
+            onClick={() => initiateNavigation(manualDestination)}
+            className="primary-btn"
+            disabled={!manualDestination.trim()}
+            aria-label="Start Walking Navigation to destination"
           >
-            🛰 Outdoor GPS
+            🧭 Navigate
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={navigationMode === "indoor"}
-            className={`nav-mode-btn ${navigationMode === "indoor" ? "active" : ""}`}
-            onClick={() => setNavigationMode("indoor")}
-          >
-            🏢 Indoor Floors
-          </button>
+          {navigationState.isNavigating && (
+            <button
+              onClick={stopNavigation}
+              className="primary-btn danger-btn"
+              aria-label="Stop Navigation"
+            >
+              ⏹️ Stop Navigation
+            </button>
+          )}
         </div>
 
-        {navigationMode === "outdoor" ? (
-          <>
-            <p style={{ color: "rgba(255, 255, 255, 0.6)", fontSize: "0.95rem", marginTop: "8px" }}>
-              Say <em>"Take me to [destination]"</em> or type a destination below:
-            </p>
-            <div className="nav-input-row">
-              <input
-                type="text"
-                className="nav-input"
-                placeholder="e.g., Central Park, Nearest Metro Station..."
-                value={manualDestination}
-                onChange={(e) => setManualDestination(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && initiateNavigation(manualDestination)}
-                aria-label="Enter Walking Destination"
-              />
-              <button
-                onClick={() => initiateNavigation(manualDestination)}
-                className="primary-btn"
-                disabled={!manualDestination.trim()}
-                aria-label="Start Walking Navigation to destination"
-              >
-                🧭 Navigate
-              </button>
-              {navigationState.isNavigating && (
-                <button
-                  onClick={stopNavigation}
-                  className="primary-btn danger-btn"
-                  aria-label="Stop Navigation"
-                >
-                  ⏹️ Stop Navigation
-                </button>
-              )}
+        {navigationState.isNavigating && (
+          <div
+            className="result-box"
+            style={{ borderColor: "#4facfe", background: "rgba(79, 172, 254, 0.1)" }}
+            aria-live="polite"
+          >
+            <div className="result-title" style={{ color: "#00f2fe" }}>
+              🚶 Navigating to: {navigationState.destination?.name || "Destination"}
             </div>
-
-            {navigationState.isNavigating && (
-              <div
-                className="result-box"
-                style={{ borderColor: "#4facfe", background: "rgba(79, 172, 254, 0.1)" }}
-                aria-live="polite"
-              >
-                <div className="result-title" style={{ color: "#00f2fe" }}>
-                  🚶 Outdoor GPS — Navigating to: {navigationState.destination?.name || "Destination"}
+            <div className="result-content">
+              {navigationState.destination?.address && (
+                <div style={{ fontSize: "0.95rem", opacity: 0.8, marginBottom: "8px" }}>
+                  📍 {navigationState.destination.address}
                 </div>
-                <div className="result-content">
-                  {navigationState.destination?.address && (
-                    <div style={{ fontSize: "0.95rem", opacity: 0.8, marginBottom: "8px" }}>
-                      📍 {navigationState.destination.address}
-                    </div>
-                  )}
-                  <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", margin: "10px 0" }}>
-                    <div>
-                      <strong>Remaining Distance:</strong>{" "}
-                      {navigationState.formattedDistance || "Calculating..."}
-                    </div>
-                    <div>
-                      <strong>Estimated Time:</strong>{" "}
-                      {navigationState.formattedDuration || "Calculating..."}
-                    </div>
-                  </div>
-
-                  {navigationState.currentStep && (
-                    <div
-                      style={{
-                        background: "rgba(255, 255, 255, 0.08)",
-                        padding: "14px 18px",
-                        borderRadius: "10px",
-                        marginTop: "12px",
-                        borderLeft: "4px solid #00f2fe"
-                      }}
-                    >
-                      <div style={{ fontSize: "0.9rem", color: "#a5b4fc" }}>Current Spoken Step:</div>
-                      <div style={{ fontSize: "1.2rem", fontWeight: 600, marginTop: "4px" }}>
-                        {navigationState.currentStep.instruction}
-                      </div>
-                    </div>
-                  )}
+              )}
+              <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", margin: "10px 0" }}>
+                <div>
+                  <strong>Remaining Distance:</strong> {navigationState.formattedDistance || "Calculating..."}
+                </div>
+                <div>
+                  <strong>Estimated Time:</strong> {navigationState.formattedDuration || "Calculating..."}
                 </div>
               </div>
-            )}
-          </>
-        ) : (
-          <IndoorNavigationPanel
-            speakText={speakText}
-            onStopOutdoorSpeech={() => {
-              if (window.speechSynthesis) window.speechSynthesis.cancel();
-            }}
-            sharedManagerRef={indoorNavigationManagerRef}
-            uiSync={indoorUiSync}
-            onMarkerApplied={(marker) => {
-              console.log("Marker applied:", marker);
-            }}
-            voiceOrchestratorRef={voiceOrchestratorRef}
-          />
+
+              {navigationState.currentStep && (
+                <div
+                  style={{
+                    background: "rgba(255, 255, 255, 0.08)",
+                    padding: "14px 18px",
+                    borderRadius: "10px",
+                    marginTop: "12px",
+                    borderLeft: "4px solid #00f2fe"
+                  }}
+                >
+                  <div style={{ fontSize: "0.9rem", color: "#a5b4fc" }}>Current Spoken Step:</div>
+                  <div style={{ fontSize: "1.2rem", fontWeight: 600, marginTop: "4px" }}>
+                    {navigationState.currentStep.instruction}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
 

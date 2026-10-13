@@ -10,7 +10,6 @@ const path = require("path");
 
 const aiRoutes = require("./routes/aiRoutes");
 const navigationRoutes = require("./routes/navigationRoutes");
-const indoorRoutes = require("./routes/indoorRoutes");
 
 const app = express();
 const upload = multer({ dest: "uploads/" });
@@ -26,7 +25,6 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 // AI and Navigation Router mounts
 app.use("/api", aiRoutes);
 app.use("/api/navigation", navigationRoutes);
-app.use("/api/indoor", indoorRoutes);
 
 // Health check
 app.get("/", (req, res) => {

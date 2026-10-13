@@ -77,25 +77,6 @@ export class NavigationManager {
     this.stepAdvanceThresholdMeters = 20; // within 20m of step end, transition to next step
     this.offRouteThresholdMeters = 60; // > 60m away from step line segment
     this.arrivalThresholdMeters = 15; // within 15m of final destination
-    this.isPaused = false;
-  }
-
-  pauseNavigation() {
-    this.isPaused = true;
-    this.onStateChange({ isPaused: true, status: "PAUSED" });
-  }
-
-  resumeNavigation() {
-    this.isPaused = false;
-    this.onStateChange({ isPaused: false, status: "ACTIVE" });
-  }
-
-  repeatInstruction() {
-    if (!this.isNavigating || !this.routeData?.steps?.length) return;
-    const step = this.routeData.steps[this.currentStepIndex];
-    if (step?.instruction) {
-      this.onInstruction({ isRepeat: true, instruction: step.instruction });
-    }
   }
 
   /**
@@ -265,7 +246,6 @@ export class NavigationManager {
   }
 
   processLocationUpdate(userLat, userLng, languageCode) {
-    if (this.isPaused) return;
     if (!this.routeData || !this.routeData.steps) return;
 
     const steps = this.routeData.steps;

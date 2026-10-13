@@ -7,9 +7,7 @@ export class SpeechController {
     onStateChange,
     onError,
     getLanguage,
-    isSpeakingRef,
-    getVoiceNavActive,
-    onVoiceNavTranscript
+    isSpeakingRef
   }) {
     this.onCommand = onCommand || (() => {});
     this.onTranscript = onTranscript || (() => {});
@@ -17,8 +15,6 @@ export class SpeechController {
     this.onError = onError || (() => {});
     this.getLanguage = getLanguage || (() => "en-US");
     this.isSpeakingRef = isSpeakingRef || { current: false };
-    this.getVoiceNavActive = getVoiceNavActive || (() => false);
-    this.onVoiceNavTranscript = onVoiceNavTranscript || (() => {});
 
     this.recognition = null;
     this.isListeningIntentional = false;
@@ -168,11 +164,6 @@ export class SpeechController {
       return; // Debounce rapid triggers
     }
 
-    if (this.getVoiceNavActive()) {
-      this.onVoiceNavTranscript(rawTranscript);
-      return;
-    }
-
     const text = rawTranscript.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()?]/g, "").trim();
 
     // Match supported commands
@@ -270,19 +261,6 @@ export class SpeechController {
       text.includes("ഇത് വായിക്കുക")
     ) {
       return { type: "READ_TEXT" };
-    }
-
-    if (text.includes("pause navigation") || text === "pause") {
-      return { type: "PAUSE_NAVIGATION" };
-    }
-    if (text.includes("resume navigation") || text === "resume") {
-      return { type: "RESUME_NAVIGATION" };
-    }
-    if (text.includes("repeat") && (text.includes("instruction") || text.includes("direction"))) {
-      return { type: "REPEAT_INSTRUCTION" };
-    }
-    if (text.includes("where am i") || text.includes("my location")) {
-      return { type: "WHERE_AM_I" };
     }
 
     // 6. STOP NAVIGATION / CANCEL NAVIGATION
